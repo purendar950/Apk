@@ -45,7 +45,7 @@
             android:text="Save as PDF"
             android:textAllCaps="false"
             android:textSize="12sp"
-            android:backgroundTint="#4CAF50" />
+             />
 
         <Button
             android:id="@+id/btnSharePdf"
@@ -55,7 +55,7 @@
             android:text="Share PDF"
             android:textAllCaps="false"
             android:textSize="12sp"
-            android:backgroundTint="#2196F3" />
+             />
     </LinearLayout>
 
     <TextView
