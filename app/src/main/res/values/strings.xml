@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">AutoTap</string>
+    <string name="accessibility_description">AutoTap uses accessibility to find and tap buttons inside other apps so it can walk through a flow and capture each screen.</string>
+</resources>
