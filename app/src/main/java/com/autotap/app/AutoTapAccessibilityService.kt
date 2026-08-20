@@ -4,30 +4,25 @@ import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.graphics.Path
 import android.os.Build
+import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import java.io.DataOutputStream
 
-/**
- * Runs while the user has enabled AutoTap under Settings -> Accessibility.
- *
- * The main activity (and the capture loop) reach this service through the
- * static [instance] to:
- *  - [tapByText] find a button/label by its text and perform a click, or
- *  - [tapAt] dispatch a raw tap gesture at screen coordinates.
- *
- * Accessibility node infos are reference-counted; every node obtained via
- * [AccessibilityNodeInfo.getChild] or [AccessibilityService.rootInActiveWindow]
- * must be recycled exactly once. The helpers below own that lifecycle.
- */
 class AutoTapAccessibilityService : AccessibilityService() {
 
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) = Unit
+    companion object {
+        private const val TAG = "AutoTapA11y"
+        @Volatile var instance: AutoTapAccessibilityService? = null
+    }
 
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) = Unit
     override fun onInterrupt() = Unit
 
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
+        Log.d(TAG, "Accessibility service connected")
     }
 
     override fun onDestroy() {
@@ -35,11 +30,12 @@ class AutoTapAccessibilityService : AccessibilityService() {
         super.onDestroy()
     }
 
-    /** Tap the first on-screen node whose text contains [text]. */
+    // ── Text-based tap ───────────────────────────────────────────────────
+
     fun tapByText(text: String): Boolean {
         val root = rootInActiveWindow ?: return false
         val match = findNodeByText(root, text)
-        if (match == null) return false // BFS already recycled the subtree
+        if (match == null) { root.recycle(); return false }
 
         var node: AccessibilityNodeInfo? = match
         while (node != null && !node.isClickable) {
@@ -53,72 +49,97 @@ class AutoTapAccessibilityService : AccessibilityService() {
         return ok
     }
 
-    /** Tap at screen coordinates by finding the node at that point and clicking it. */
+    // ── Coordinate tap — gesture-first, then input tap fallback ──────────
+
     fun tapAt(x: Int, y: Int): Boolean {
-        val root = rootInActiveWindow ?: return false
-        val node = findNodeAtPoint(root, x, y)
-        if (node != null) {
-            val clicked = node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-            node.recycle()
-            root.recycle()
-            return clicked
-        }
-        root.recycle()
-        // Fallback: use gesture dispatch if node not found
+        Log.d(TAG, "tapAt($x, $y)")
+
+        // Strategy 1 (primary): dispatchGesture — matches the proven auto-clicker approach.
+        // Very short stroke (50 ms), single-point path, no lineTo.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            val path = Path().apply {
-                moveTo(x.toFloat(), y.toFloat())
-                lineTo(x.toFloat() + 10f, y.toFloat())
-            }
-            val stroke = GestureDescription.StrokeDescription(path, 0, 150)
+            val path = Path().apply { moveTo(x.toFloat(), y.toFloat()) }
+            val stroke = GestureDescription.StrokeDescription(path, 0, 50)
             val gesture = GestureDescription.Builder().addStroke(stroke).build()
-            return dispatchGesture(gesture, null, null)
+            val success = dispatchGesture(gesture, object : GestureResultCallback() {
+                override fun onCompleted(gestureDescription: GestureDescription) {
+                    Log.d(TAG, "dispatchGesture completed OK")
+                }
+                override fun onCancelled(gestureDescription: GestureDescription) {
+                    Log.w(TAG, "dispatchGesture cancelled — falling back to input tap")
+                    inputTap(x, y)
+                }
+            }, null)
+            Log.d(TAG, "dispatchGesture returned $success")
+            if (success) return true
         }
-        return false
+
+        // Strategy 2: try node-based click (accessibility action)
+        val root = rootInActiveWindow
+        if (root != null) {
+            val node = findClickableNodeAtPoint(root, x, y)
+            if (node != null) {
+                val ok = node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                node.recycle()
+                root.recycle()
+                Log.d(TAG, "node click returned $ok")
+                return ok
+            }
+            root.recycle()
+        }
+
+        // Strategy 3: input tap via shell (works on rooted / adb-enabled devices)
+        Log.d(TAG, "Trying input tap fallback")
+        return inputTap(x, y)
     }
 
-    private fun findNodeAtPoint(root: AccessibilityNodeInfo, x: Int, y: Int): AccessibilityNodeInfo? {
-        val queue = ArrayDeque<AccessibilityNodeInfo>()
-        queue.add(root)
+    /** Shell-level input tap — bypasses accessibility entirely. */
+    private fun inputTap(x: Int, y: Int): Boolean {
+        return try {
+            val proc = Runtime.getRuntime().exec(arrayOf("sh", "-c", "input tap $x $y"))
+            proc.waitFor() == 0
+        } catch (e: Exception) {
+            Log.e(TAG, "input tap failed", e)
+            false
+        }
+    }
+
+    // ── Node helpers ─────────────────────────────────────────────────────
+
+    private fun findClickableNodeAtPoint(root: AccessibilityNodeInfo, x: Int, y: Int): AccessibilityNodeInfo? {
+        var best: AccessibilityNodeInfo? = null
+        var bestArea = Int.MAX_VALUE
+        val queue = ArrayDeque<AccessibilityNodeInfo>(); queue.add(root)
+        val seen = HashSet<String>()
         while (queue.isNotEmpty()) {
             val node = queue.removeFirst()
+            val id = System.identityHashCode(node).toString()
+            if (!seen.add(id)) continue
             val bounds = android.graphics.Rect()
             node.getBoundsInScreen(bounds)
             if (bounds.contains(x, y) && node.isClickable) {
-                return node
+                val area = bounds.width() * bounds.height()
+                if (area < bestArea) {
+                    bestArea = area
+                    best?.recycle()
+                    best = node; continue
+                }
             }
-            for (i in 0 until node.childCount) {
-                node.getChild(i)?.let { queue.add(it) }
-            }
-            if (node !== root) node.recycle()
-        }
-        return null
-    }
-
-    /**
-     * Breadth-first search for a node whose text contains [text]. The matched
-     * node is returned (un-recycled); every other visited node is recycled
-     * here, so the caller only has to recycle the returned node.
-     */
-    private fun findNodeByText(
-        root: AccessibilityNodeInfo,
-        text: String
-    ): AccessibilityNodeInfo? {
-        val queue = ArrayDeque<AccessibilityNodeInfo>().apply { add(root) }
-        while (queue.isNotEmpty()) {
-            val node = queue.removeFirst()
-            val matches = node.text?.toString()?.contains(text, ignoreCase = true) == true
-            if (matches) return node
             for (i in 0 until node.childCount) {
                 node.getChild(i)?.let { queue.add(it) }
             }
             node.recycle()
         }
-        return null
+        return best
     }
 
-    companion object {
-        @Volatile
-        var instance: AutoTapAccessibilityService? = null
+    private fun findNodeByText(root: AccessibilityNodeInfo, text: String): AccessibilityNodeInfo? {
+        val queue = ArrayDeque<AccessibilityNodeInfo>().apply { add(root) }
+        while (queue.isNotEmpty()) {
+            val node = queue.removeFirst()
+            if (node.text?.toString()?.contains(text, ignoreCase = true) == true) return node
+            for (i in 0 until node.childCount) { node.getChild(i)?.let { queue.add(it) } }
+            node.recycle()
+        }
+        return null
     }
 }
