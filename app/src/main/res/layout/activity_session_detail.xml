@@ -39,40 +39,79 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:padding="8dp"
+        android:padding="6dp"
         android:background="#282828">
 
         <Button
             android:id="@+id/btnShareAllImages"
             android:layout_width="0dp"
             android:layout_weight="1"
-            android:layout_height="36dp"
+            android:layout_height="32dp"
             android:text="Share Images"
             android:textAllCaps="false"
-            android:textSize="11sp"
-            android:layout_marginEnd="4dp"
+            android:textSize="10sp"
+            android:layout_marginEnd="2dp"
             android:minHeight="0dp" />
 
         <Button
             android:id="@+id/btnSavePdf"
             android:layout_width="0dp"
             android:layout_weight="1"
-            android:layout_height="36dp"
+            android:layout_height="32dp"
             android:text="Save PDF"
             android:textAllCaps="false"
-            android:textSize="11sp"
-            android:layout_marginEnd="4dp"
+            android:textSize="10sp"
+            android:layout_marginEnd="2dp"
             android:minHeight="0dp" />
 
         <Button
             android:id="@+id/btnSharePdf"
             android:layout_width="0dp"
             android:layout_weight="1"
-            android:layout_height="36dp"
+            android:layout_height="32dp"
             android:text="Share PDF"
             android:textAllCaps="false"
-            android:textSize="11sp"
+            android:textSize="10sp"
+            android:layout_marginEnd="2dp"
             android:minHeight="0dp" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:padding="6dp"
+        android:background="#1B3A1B"
+        android:gravity="center_vertical">
+
+        <TextView
+            android:id="@+id/tvSelectInfo"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Tap images to select"
+            android:textSize="11sp"
+            android:textColor="#4CAF50"
+            android:visibility="gone" />
+
+        <Button
+            android:id="@+id/btnSelectAll"
+            style="?android:attr/buttonBarButtonStyle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Select All"
+            android:textColor="#FFFFFF"
+            android:textSize="11sp" />
+
+        <Button
+            android:id="@+id/btnShareSelected"
+            style="?android:attr/buttonBarButtonStyle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Share Selected"
+            android:textColor="#FF9800"
+            android:textSize="11sp"
+            android:textStyle="bold" />
     </LinearLayout>
 
     <TextView
@@ -80,7 +119,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:padding="48dp"
-        android:text="No files found."
+        android:text="No files."
         android:textAlignment="center"
         android:textColor="#777777"
         android:visibility="gone" />

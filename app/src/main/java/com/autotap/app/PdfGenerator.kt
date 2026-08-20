@@ -6,79 +6,66 @@ import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.pdf.PdfDocument
-import android.graphics.pdf.PdfRenderer
-import android.os.ParcelFileDescriptor
 import android.util.Log
 import java.io.File
 import java.io.FileOutputStream
+import kotlin.math.ceil
+import kotlin.math.min
 
-/**
- * Converts stitched PNG images into a multi-page PDF.
- * Uses Android's built-in PdfDocument API (no external dependencies).
- */
 object PdfGenerator {
 
     private const val TAG = "AutoTapPdf"
 
     /**
-     * Create a PDF from the given stitched image files.
-     * Each image becomes one page in the PDF.
-     * Returns the output PDF file, or null on failure.
+     * Create a full-resolution PDF from stitched PNG images.
+     * Each page matches the original image width — no downscaling.
+     * Long images are tiled across multiple pages at full quality.
      */
     fun createPdf(context: Context, imageFiles: List<File>): File? {
-        if (imageFiles.isEmpty()) {
-            Log.w(TAG, "No images to convert")
-            return null
-        }
+        if (imageFiles.isEmpty()) return null
 
         val outDir = File(context.filesDir, "pdf").apply { mkdirs() }
         val pdfFile = File(outDir, "AutoTap_${System.currentTimeMillis()}.pdf")
         val document = PdfDocument()
 
         try {
-            for ((index, imageFile) in imageFiles.withIndex()) {
-                val bitmap = BitmapFactory.decodeFile(imageFile.absolutePath) ?: continue
+            var pageNum = 0
 
-                // A4-ish page: 595 x 842 points (72 dpi)
-                val pageWidth = 595
-                val pageHeight = 842
+            for (imageFile in imageFiles) {
+                // Decode at FULL resolution — no inSampleSize
+                val bitmap = BitmapFactory.decodeFile(imageFile.absolutePath)
+                    ?: continue
 
-                // Scale bitmap to fit within the page width
-                val scale = pageWidth.toFloat() / bitmap.width
-                val scaledWidth = pageWidth
-                val scaledHeight = (bitmap.height * scale).toInt()
+                val imgWidth = bitmap.width
+                val imgHeight = bitmap.height
 
-                // If the scaled image is taller than one page, we tile it
-                val totalPages = Math.ceil(scaledHeight.toDouble() / pageHeight).toInt().coerceAtLeast(1)
+                // Page size matches the image exactly (1 point = 1 pixel at 72 dpi)
+                // For a 1080px wide screenshot, page is 1080pt wide
+                val pageWidth = imgWidth
+                val pageHeight = 842  // A4 height as baseline
+
+                // If image fits on one page, use its full height
+                val totalPages = if (imgHeight <= pageHeight) {
+                    1
+                } else {
+                    ceil(imgHeight.toDouble() / pageHeight).toInt()
+                }
 
                 for (page in 0 until totalPages) {
-                    val pageInfo = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, index * 100 + page).create()
-                    val pdfPage = document.startPage(pageInfo)
+                    pageNum++
+                    val info = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNum).create()
+                    val pdfPage = document.startPage(info)
                     val canvas: Canvas = pdfPage.canvas
-
-                    // Fill white background
                     canvas.drawColor(Color.WHITE)
 
-                    // Crop the source bitmap for this page slice
-                    val srcY = (page * pageHeight / scale).toInt()
-                    val srcHeight = (pageHeight / scale).toInt().coerceAtMost(bitmap.height - srcY)
+                    // Calculate source crop region
+                    val srcY = (page * imgHeight / totalPages)
+                    val srcH = min(imgHeight - srcY, imgHeight / totalPages + 1)
 
-                    if (srcY < bitmap.height) {
-                        val slice = Bitmap.createBitmap(
-                            bitmap,
-                            0,
-                            srcY.coerceIn(0, bitmap.height - 1),
-                            bitmap.width,
-                            srcHeight.coerceAtLeast(1)
-                        )
-                        val sliceScaledH = (srcHeight * scale).toInt()
-                        val drawBitmap = Bitmap.createScaledBitmap(slice, scaledWidth, sliceScaledH, true)
-
-                        // Center vertically on page
-                        val yOffset = ((pageHeight - sliceScaledH) / 2f).coerceAtLeast(0f)
-                        canvas.drawBitmap(drawBitmap, 0f, yOffset, null)
-
-                        if (drawBitmap !== slice) drawBitmap.recycle()
+                    if (srcY < imgHeight && srcH > 0) {
+                        val slice = Bitmap.createBitmap(bitmap, 0, srcY, imgWidth, srcH)
+                        // Draw at 1:1 scale — full resolution, no quality loss
+                        canvas.drawBitmap(slice, 0f, 0f, null)
                         slice.recycle()
                     }
 
@@ -86,13 +73,13 @@ object PdfGenerator {
                 }
 
                 bitmap.recycle()
-                Log.d(TAG, "Added image ${imageFile.name} ($totalPages page(s))")
+                Log.d(TAG, "Added ${imageFile.name}: ${imgWidth}x${imgHeight}, $totalPages page(s)")
             }
 
             FileOutputStream(pdfFile).use { out ->
                 document.writeTo(out)
             }
-            Log.d(TAG, "PDF created: ${pdfFile.absolutePath} (${pdfFile.length()} bytes)")
+            Log.d(TAG, "PDF created: ${pdfFile.length()} bytes")
             return pdfFile
         } catch (e: Exception) {
             Log.e(TAG, "Failed to create PDF", e)
@@ -103,9 +90,6 @@ object PdfGenerator {
         }
     }
 
-    /**
-     * Save the PDF to the system Pictures directory so it shows in file managers.
-     */
     fun saveToGallery(context: Context, pdfFile: File): File? {
         val picturesDir = android.os.Environment.getExternalStoragePublicDirectory(
             android.os.Environment.DIRECTORY_DOCUMENTS

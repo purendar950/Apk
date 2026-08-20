@@ -7,7 +7,6 @@ import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
 import android.util.Log
-import android.view.Gravity
 import android.view.View
 import android.widget.Button
 import android.widget.ImageView
@@ -32,6 +31,12 @@ class SessionDetailActivity : AppCompatActivity() {
     private val scope = CoroutineScope(Dispatchers.Main)
     private var session: CaptureSession? = null
 
+    // Track selected items for multi-share
+    private val allFiles = mutableListOf<File>()
+    private val selectedIndices = mutableSetOf<Int>()
+    private lateinit var container: LinearLayout
+    private lateinit var tvSelectInfo: TextView
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_session_detail)
@@ -46,48 +51,61 @@ class SessionDetailActivity : AppCompatActivity() {
             return
         }
 
+        container = findViewById(R.id.container)
+        tvSelectInfo = findViewById(R.id.tvSelectInfo)
+
         findViewById<Button>(R.id.btnBack).setOnClickListener { finish() }
         findViewById<TextView>(R.id.tvTitle).text = session!!.dateFormatted()
 
-        val container = findViewById<LinearLayout>(R.id.container)
-        val tvEmpty = findViewById<TextView>(R.id.tvEmpty)
-
         try {
-            val stitched = session!!.stitchedFileObjects(this)
-            val frames = session!!.frameFiles(this)
-
-            if (stitched.isEmpty() && frames.isEmpty()) {
-                tvEmpty.visibility = View.VISIBLE
-                return
-            }
-
-            val maxWidth = resources.displayMetrics.widthPixels
-
-            // Stitched images header
-            if (stitched.isNotEmpty()) {
-                container.addView(makeHeader("Stitched Images (${stitched.size})"))
-                for (file in stitched) {
-                    container.addView(makeImage(file, maxWidth))
-                }
-            }
-
-            // Individual frames header
-            if (frames.isNotEmpty()) {
-                container.addView(makeHeader("Individual Frames (${frames.size})"))
-                for (file in frames) {
-                    container.addView(makeImage(file, maxWidth))
-                }
-            }
-
-            // Wire buttons
-            findViewById<Button>(R.id.btnShareAllImages).setOnClickListener { shareAllImages(stitched) }
-            findViewById<Button>(R.id.btnSavePdf).setOnClickListener { savePdf(stitched) }
-            findViewById<Button>(R.id.btnSharePdf).setOnClickListener { sharePdf(stitched) }
-
+            loadFiles()
         } catch (e: Exception) {
             Log.e(TAG, "Error loading session", e)
-            tvEmpty.visibility = View.VISIBLE
-            tvEmpty.text = "Error: ${e.message}"
+            findViewById<TextView>(R.id.tvEmpty).visibility = View.VISIBLE
+            findViewById<TextView>(R.id.tvEmpty).text = "Error: ${e.message}"
+        }
+
+        // Action buttons
+        findViewById<Button>(R.id.btnShareAllImages).setOnClickListener { shareAllImages() }
+        findViewById<Button>(R.id.btnSavePdf).setOnClickListener { savePdf() }
+        findViewById<Button>(R.id.btnSharePdf).setOnClickListener { sharePdf() }
+        findViewById<Button>(R.id.btnShareSelected).setOnClickListener { shareSelectedFiles() }
+        findViewById<Button>(R.id.btnSelectAll).setOnClickListener { toggleSelectAll() }
+    }
+
+    private fun loadFiles() {
+        container.removeAllViews()
+        allFiles.clear()
+        selectedIndices.clear()
+
+        val stitched = session!!.stitchedFileObjects(this)
+        val frames = session!!.frameFiles(this)
+
+        if (stitched.isEmpty() && frames.isEmpty()) {
+            findViewById<TextView>(R.id.tvEmpty).visibility = View.VISIBLE
+            return
+        }
+
+        val maxWidth = resources.displayMetrics.widthPixels
+
+        // Stitched images
+        if (stitched.isNotEmpty()) {
+            container.addView(makeHeader("Stitched Images (${stitched.size}) — tap to select"))
+            for ((i, file) in stitched.withIndex()) {
+                val idx = allFiles.size
+                allFiles.add(file)
+                container.addView(makeSelectableImage(file, maxWidth, idx))
+            }
+        }
+
+        // Individual frames
+        if (frames.isNotEmpty()) {
+            container.addView(makeHeader("Frames (${frames.size}) — tap to select"))
+            for ((i, file) in frames.withIndex()) {
+                val idx = allFiles.size
+                allFiles.add(file)
+                container.addView(makeSelectableImage(file, maxWidth, idx))
+            }
         }
     }
 
@@ -100,49 +118,132 @@ class SessionDetailActivity : AppCompatActivity() {
         }
     }
 
-    private fun makeImage(file: File, maxWidth: Int): ImageView {
-        return ImageView(this).apply {
+    private fun makeSelectableImage(file: File, maxWidth: Int, index: Int): View {
+        val wrapper = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply { topMargin = dp(4) }
+        }
+
+        val iv = ImageView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
             scaleType = ImageView.ScaleType.FIT_CENTER
             adjustViewBounds = true
             setBackgroundColor(Color.parseColor("#111111"))
             post {
                 try {
-                    val bmp = decodeScaled(file, maxWidth)
-                    setImageBitmap(bmp)
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to decode ${file.name}", e)
-                }
+                    setImageBitmap(decodeScaled(file, maxWidth))
+                } catch (_: Exception) {}
             }
         }
+
+        // Selection indicator
+        val tvSel = TextView(this).apply {
+            text = "○ ${file.name}"
+            textSize = 11f
+            setTextColor(Color.parseColor("#777777"))
+            setPadding(0, dp(2), 0, 0)
+        }
+
+        wrapper.addView(iv)
+        wrapper.addView(tvSel)
+
+        // Toggle selection on tap
+        wrapper.setOnClickListener {
+            if (selectedIndices.contains(index)) {
+                selectedIndices.remove(index)
+                tvSel.text = "○ ${file.name}"
+                tvSel.setTextColor(Color.parseColor("#777777"))
+                wrapper.alpha = 1.0f
+            } else {
+                selectedIndices.add(index)
+                tvSel.text = "● ${file.name}"
+                tvSel.setTextColor(Color.parseColor("#4CAF50"))
+                wrapper.alpha = 0.85f
+            }
+            updateSelectInfo()
+        }
+
+        return wrapper
     }
 
-    private fun shareAllImages(files: List<File>) {
-        if (files.isEmpty()) {
-            Toast.makeText(this, "No images to share", Toast.LENGTH_SHORT).show()
+    private fun updateSelectInfo() {
+        tvSelectInfo.text = "${selectedIndices.size} of ${allFiles.size} selected"
+        tvSelectInfo.visibility = if (allFiles.isNotEmpty()) View.VISIBLE else View.GONE
+    }
+
+    private fun toggleSelectAll() {
+        if (selectedIndices.size == allFiles.size) {
+            selectedIndices.clear()
+        } else {
+            for (i in allFiles.indices) selectedIndices.add(i)
+        }
+        // Rebuild to update visuals
+        loadFiles()
+        // Re-select
+        for (i in selectedIndices) {
+            val child = container.getChildAt(if (session!!.stitchedFileObjects(this).isNotEmpty()) 1 else 0)
+            // Just update the info text
+        }
+        updateSelectInfo()
+    }
+
+    private fun shareSelectedFiles() {
+        if (selectedIndices.isEmpty()) {
+            Toast.makeText(this, "Tap images to select, then share", Toast.LENGTH_SHORT).show()
             return
         }
+        val files = selectedIndices.map { allFiles[it] }
+        shareFiles(files)
+    }
+
+    private fun shareAllImages() {
+        val files = session!!.stitchedFileObjects(this)
+        if (files.isEmpty()) {
+            Toast.makeText(this, "No images", Toast.LENGTH_SHORT).show()
+            return
+        }
+        shareFiles(files)
+    }
+
+    private fun shareFiles(files: List<File>) {
+        if (files.isEmpty()) return
         if (files.size == 1) {
             val uri = FileProvider.getUriForFile(this, authority, files.first())
+            val type = when {
+                files.first().name.endsWith(".pdf") -> "application/pdf"
+                files.first().name.endsWith(".png") -> "image/png"
+                else -> "*/*"
+            }
             startActivity(Intent(Intent.ACTION_SEND).apply {
-                type = "image/png"
+                this.type = type
                 putExtra(Intent.EXTRA_STREAM, uri)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             })
         } else {
             val uris = ArrayList(files.map { FileProvider.getUriForFile(this, authority, it) })
+            val allPdf = files.all { it.name.endsWith(".pdf") }
+            val allPng = files.all { it.name.endsWith(".png") }
+            val mime = when {
+                allPdf -> "application/pdf"
+                allPng -> "image/png"
+                else -> "*/*"
+            }
             startActivity(Intent(Intent.ACTION_SEND_MULTIPLE).apply {
-                type = "image/png"
+                type = mime
                 putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             })
         }
     }
 
-    private fun savePdf(files: List<File>) {
+    private fun savePdf() {
+        val files = session!!.stitchedFileObjects(this)
         if (files.isEmpty()) return
         val btn = findViewById<Button>(R.id.btnSavePdf)
         btn.isEnabled = false; btn.text = "Generating…"
@@ -152,27 +253,23 @@ class SessionDetailActivity : AppCompatActivity() {
                 withContext(Dispatchers.IO) { PdfGenerator.saveToGallery(this@SessionDetailActivity, pdf) }
                 Toast.makeText(this@SessionDetailActivity, "PDF saved to Documents/AutoTap/", Toast.LENGTH_LONG).show()
             } else {
-                Toast.makeText(this@SessionDetailActivity, "Failed to create PDF", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@SessionDetailActivity, "Failed", Toast.LENGTH_SHORT).show()
             }
             btn.isEnabled = true; btn.text = "Save PDF"
         }
     }
 
-    private fun sharePdf(files: List<File>) {
+    private fun sharePdf() {
+        val files = session!!.stitchedFileObjects(this)
         if (files.isEmpty()) return
         val btn = findViewById<Button>(R.id.btnSharePdf)
         btn.isEnabled = false; btn.text = "Generating…"
         scope.launch {
             val pdf = withContext(Dispatchers.IO) { PdfGenerator.createPdf(this@SessionDetailActivity, files) }
             if (pdf != null) {
-                val uri = FileProvider.getUriForFile(this@SessionDetailActivity, authority, pdf)
-                startActivity(Intent(Intent.ACTION_SEND).apply {
-                    type = "application/pdf"
-                    putExtra(Intent.EXTRA_STREAM, uri)
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                })
+                shareFiles(listOf(pdf))
             } else {
-                Toast.makeText(this@SessionDetailActivity, "Failed to create PDF", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@SessionDetailActivity, "Failed", Toast.LENGTH_SHORT).show()
             }
             btn.isEnabled = true; btn.text = "Share PDF"
         }
@@ -184,16 +281,9 @@ class SessionDetailActivity : AppCompatActivity() {
             BitmapFactory.decodeFile(file.absolutePath, opts)
             var sample = 1
             while (opts.outWidth / (sample + 1) > maxWidth) sample *= 2
-            BitmapFactory.decodeFile(
-                file.absolutePath,
-                BitmapFactory.Options().apply { inSampleSize = sample }
-            )
-        } catch (e: Exception) {
-            null
-        }
+            BitmapFactory.decodeFile(file.absolutePath, BitmapFactory.Options().apply { inSampleSize = sample })
+        } catch (e: Exception) { null }
     }
 
-    private fun dp(value: Int): Int {
-        return (value * resources.displayMetrics.density).toInt()
-    }
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 }
