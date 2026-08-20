@@ -25,6 +25,8 @@ class ResultsActivity : AppCompatActivity() {
     private val scope = CoroutineScope(Dispatchers.Main)
 
     private lateinit var stitchedFiles: List<File>
+    private lateinit var btnSavePdf: Button
+    private lateinit var btnSharePdf: Button
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -34,8 +36,8 @@ class ResultsActivity : AppCompatActivity() {
         val tvEmpty = findViewById<TextView>(R.id.tvEmpty)
         val btnOpen = findViewById<Button>(R.id.btnOpenExternal)
         val btnShare = findViewById<Button>(R.id.btnShare)
-        val btnSavePdf = findViewById<Button>(R.id.btnSavePdf)
-        val btnSharePdf = findViewById<Button>(R.id.btnSharePdf)
+        btnSavePdf = findViewById(R.id.btnSavePdf)
+        btnSharePdf = findViewById(R.id.btnSharePdf)
 
         val dir = File(filesDir, "stitched")
         stitchedFiles = dir.listFiles()
@@ -69,7 +71,6 @@ class ResultsActivity : AppCompatActivity() {
         val latest = stitchedFiles.last()
         btnOpen.setOnClickListener { openExternal(latest) }
         btnShare.setOnClickListener { shareExternal(latest) }
-
         btnSavePdf.setOnClickListener { savePdf() }
         btnSharePdf.setOnClickListener { sharePdf() }
     }
@@ -92,13 +93,11 @@ class ResultsActivity : AppCompatActivity() {
                     "PDF saved to app storage: ${pdf.name}"
                 }
                 Toast.makeText(this@ResultsActivity, msg, Toast.LENGTH_LONG).show()
-                btnSavePdf.text = "Save as PDF"
-                btnSavePdf.isEnabled = true
             } else {
                 Toast.makeText(this@ResultsActivity, "Failed to create PDF", Toast.LENGTH_SHORT).show()
-                btnSavePdf.text = "Save as PDF"
-                btnSavePdf.isEnabled = true
             }
+            btnSavePdf.text = "Save PDF"
+            btnSavePdf.isEnabled = true
         }
     }
 
