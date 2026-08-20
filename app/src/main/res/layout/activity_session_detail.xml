@@ -2,13 +2,14 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical">
+    android:orientation="vertical"
+    android:background="#1A1A1A">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:padding="8dp"
+        android:padding="12dp"
         android:background="#222222"
         android:gravity="center_vertical">
 
@@ -39,7 +40,7 @@
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:padding="8dp"
-        android:background="#333333">
+        android:background="#282828">
 
         <Button
             android:id="@+id/btnShareAllImages"
@@ -71,17 +72,6 @@
             android:text="Share PDF"
             android:textAllCaps="false"
             android:textSize="11sp"
-            android:layout_marginEnd="4dp"
-            android:minHeight="0dp" />
-
-        <Button
-            android:id="@+id/btnOpenAll"
-            android:layout_width="0dp"
-            android:layout_weight="1"
-            android:layout_height="36dp"
-            android:text="Open All"
-            android:textAllCaps="false"
-            android:textSize="11sp"
             android:minHeight="0dp" />
     </LinearLayout>
 
@@ -92,7 +82,7 @@
         android:padding="48dp"
         android:text="No files found."
         android:textAlignment="center"
-        android:textColor="#888888"
+        android:textColor="#777777"
         android:visibility="gone" />
 
     <ScrollView

@@ -1,12 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<com.google.android.material.card.MaterialCardView
-    xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_margin="4dp"
-    app:cardCornerRadius="12dp"
-    app:cardElevation="2dp"
+    android:layout_marginBottom="8dp"
+    android:background="#2A2A2A"
     android:clickable="true"
     android:focusable="true"
     android:foreground="?android:selectableItemBackground">
@@ -28,7 +25,7 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:textSize="15sp"
+                android:textSize="14sp"
                 android:textStyle="bold"
                 android:textColor="#EEEEEE" />
 
@@ -36,7 +33,7 @@
                 android:id="@+id/tvFrames"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:textSize="13sp"
+                android:textSize="12sp"
                 android:textColor="#AAAAAA"
                 android:background="#333333"
                 android:paddingStart="8dp"
@@ -54,10 +51,10 @@
 
             <ImageView
                 android:id="@+id/ivThumbnail"
-                android:layout_width="64dp"
-                android:layout_height="96dp"
+                android:layout_width="48dp"
+                android:layout_height="72dp"
                 android:scaleType="centerCrop"
-                android:background="#111111"
+                android:background="#1A1A1A"
                 android:contentDescription="Thumbnail" />
 
             <LinearLayout
@@ -71,44 +68,55 @@
                     android:id="@+id/tvInfo"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:textSize="13sp"
-                    android:textColor="#CCCCCC" />
+                    android:textSize="12sp"
+                    android:textColor="#BBBBBB"
+                    android:lineSpacingExtra="2dp" />
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
-                    android:layout_marginTop="8dp">
+                    android:layout_marginTop="6dp"
+                    android:gravity="center_vertical">
 
                     <Button
                         android:id="@+id/btnShareImage"
                         style="?android:attr/buttonBarButtonStyle"
                         android:layout_width="wrap_content"
-                        android:layout_height="32dp"
-                        android:text="Share Image"
-                        android:textSize="11sp"
-                        android:minHeight="0dp" />
+                        android:layout_height="28dp"
+                        android:text="Share Img"
+                        android:textSize="10sp"
+                        android:minHeight="0dp"
+                        android:minWidth="0dp"
+                        android:paddingStart="4dp"
+                        android:paddingEnd="4dp" />
 
                     <Button
                         android:id="@+id/btnSharePdf"
                         style="?android:attr/buttonBarButtonStyle"
                         android:layout_width="wrap_content"
-                        android:layout_height="32dp"
+                        android:layout_height="28dp"
                         android:text="Share PDF"
-                        android:textSize="11sp"
-                        android:minHeight="0dp" />
+                        android:textSize="10sp"
+                        android:minHeight="0dp"
+                        android:minWidth="0dp"
+                        android:paddingStart="4dp"
+                        android:paddingEnd="4dp" />
 
                     <Button
                         android:id="@+id/btnDelete"
                         style="?android:attr/buttonBarButtonStyle"
                         android:layout_width="wrap_content"
-                        android:layout_height="32dp"
+                        android:layout_height="28dp"
                         android:text="Delete"
-                        android:textSize="11sp"
+                        android:textSize="10sp"
                         android:textColor="#FF4444"
-                        android:minHeight="0dp" />
+                        android:minHeight="0dp"
+                        android:minWidth="0dp"
+                        android:paddingStart="4dp"
+                        android:paddingEnd="4dp" />
                 </LinearLayout>
             </LinearLayout>
         </LinearLayout>
     </LinearLayout>
-</com.google.android.material.card.MaterialCardView>
+</FrameLayout>
