@@ -2,7 +2,6 @@ package com.autotap.app
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
-import android.accessibilityservice.GestureDescription.GestureResultCallback
 import android.graphics.Path
 import android.os.Build
 import android.view.accessibility.AccessibilityEvent
@@ -66,7 +65,7 @@ class AutoTapAccessibilityService : AccessibilityService() {
         val stroke = GestureDescription.StrokeDescription(path, 0, 150)
         val gesture = GestureDescription.Builder().addStroke(stroke).build()
 
-        return dispatchGesture(gesture, object : GestureResultCallback() {
+        return dispatchGesture(gesture, object : GestureDescription.GestureResultCallback() {
             override fun onCompleted(gestureDescription: GestureDescription) { }
             override fun onCancelled(gestureDescription: GestureDescription) { }
         }, null)
