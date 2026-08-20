@@ -46,7 +46,7 @@ class MainActivity : AppCompatActivity() {
                 ScreenCaptureService.ACTION_DONE -> {
                     val pages = intent.getIntExtra(ScreenCaptureService.EXTRA_PAGES, 0)
                     tvStatus.text = "Done — $pages page(s) saved"
-                    showToast("Saved to gallery & app")
+                    showToast("Capture complete! Open dashboard to view.")
                 }
                 OverlayService.ACTION_OVERLAY_START -> startCaptureFlow()
             }
@@ -109,7 +109,7 @@ class MainActivity : AppCompatActivity() {
             startCaptureFlow()
         }
         findViewById<Button>(R.id.btnResults).setOnClickListener {
-            startActivity(Intent(this, ResultsActivity::class.java))
+            startActivity(Intent(this, DashboardActivity::class.java))
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {

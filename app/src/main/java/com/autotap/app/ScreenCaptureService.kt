@@ -18,16 +18,16 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.DisplayMetrics
-import android.view.WindowManager
 import android.util.Log
+import android.view.WindowManager
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.cancel
 import java.io.File
 import java.io.FileOutputStream
 
@@ -163,47 +163,66 @@ class ScreenCaptureService : android.app.Service() {
 
     private fun runLoop(config: AutoTapConfig) {
         scope.launch {
-            val dir = File(filesDir, "frames").apply { mkdirs() }
-            dir.listFiles()?.forEach { it.delete() }
+            // Create session directory
+            val (sessionId, sessionDir) = SessionManager.createSessionDir(this@ScreenCaptureService)
+            val framesDir = File(sessionDir, "frames")
+            val stitchedDir = File(sessionDir, "stitched")
+
             var captured = 0
             broadcastProgress(captured, config.questionCount)
 
-            // Give user time to switch to target app after pressing Start
+            // Give user time to switch to target app
             Log.d(TAG, "Starting in 2 seconds — switch to target app now!")
             delay(2000)
 
             repeat(config.questionCount) {
                 if (!running) return@launch
 
-                // Tap FIRST, then capture (so we capture the result of the tap)
                 tap(config)
-                // Small delay for the tap to register in the UI
                 delay(300)
-                if (captureFrame(dir, captured)) captured++
+                if (captureFrame(framesDir, captured)) captured++
                 broadcastProgress(captured, config.questionCount)
-                // Wait for the next question to render
                 delay(config.delayMs)
             }
 
-            // Extra final capture after last tap
-            if (running && captureFrame(dir, captured)) captured++
+            if (running && captureFrame(framesDir, captured)) captured++
 
-            val frames = dir.listFiles()
+            val frames = framesDir.listFiles()
                 ?.filter { it.name.endsWith(".png") }
                 ?.sortedBy { it.name }
                 ?: emptyList()
-            val outDir = File(filesDir, "stitched").apply { mkdirs() }
-            val pages = FrameStitcher.stitch(frames, outDir, maxWidth = 1080)
-            val galleryUris = pages.mapNotNull { GallerySaver.save(this@ScreenCaptureService, it, it.name) }
 
-            // Auto-generate PDF from stitched images
+            val pages = FrameStitcher.stitch(frames, stitchedDir, maxWidth = 1080)
+
+            // Save to gallery
+            val galleryUris = pages.mapNotNull {
+                GallerySaver.save(this@ScreenCaptureService, it, "${sessionId}_${it.name}")
+            }
+
+            // Auto-generate PDF
+            var pdfPath: String? = null
             val pdfFile = withContext(Dispatchers.IO) {
                 PdfGenerator.createPdf(this@ScreenCaptureService, pages)
             }
             if (pdfFile != null) {
-                withContext(Dispatchers.IO) { PdfGenerator.saveToGallery(this@ScreenCaptureService, pdfFile) }
+                withContext(Dispatchers.IO) {
+                    PdfGenerator.saveToGallery(this@ScreenCaptureService, pdfFile)
+                }
+                pdfPath = pdfFile.absolutePath
                 Log.d(TAG, "PDF auto-generated: ${pdfFile.name}")
             }
+
+            // Save session metadata
+            val session = CaptureSession(
+                id = sessionId,
+                timestamp = System.currentTimeMillis(),
+                questionCount = config.questionCount,
+                frameCount = captured,
+                sessionDir = sessionDir.absolutePath,
+                stitchedFiles = pages.map { it.absolutePath },
+                pdfPath = pdfPath
+            )
+            SessionManager.saveSession(this@ScreenCaptureService, session)
 
             running = false
             broadcastDone(pages, galleryUris)
@@ -234,15 +253,12 @@ class ScreenCaptureService : android.app.Service() {
 
     private suspend fun tap(config: AutoTapConfig) {
         val svc = AutoTapAccessibilityService.instance
-        Log.d(TAG, "tap() svc=$svc useRaw=${config.useRawTap} x=${config.tapX} y=${config.tapY}")
         if (svc == null) {
-            Log.w(TAG, "Accessibility service not running! Tap will fail.")
+            Log.w(TAG, "Accessibility service not running!")
             return
         }
 
-        // Hide the overlay marker so it doesn't intercept the gesture
         sendBroadcast(Intent(OverlayService.ACTION_HIDE_MARKER).apply { setPackage(packageName) })
-        // Small delay for the overlay to hide
         delay(100)
 
         withContext(Dispatchers.Main) {
@@ -253,7 +269,6 @@ class ScreenCaptureService : android.app.Service() {
             }
         }
 
-        // Wait for gesture to complete, then restore the marker
         delay(200)
         sendBroadcast(Intent(OverlayService.ACTION_SHOW_MARKER).apply { setPackage(packageName) })
     }
@@ -346,7 +361,6 @@ class ScreenCaptureService : android.app.Service() {
         )
         bitmap.copyPixelsFromBuffer(buffer)
         image.close()
-        // Crop to actual screen size if there's padding
         return if (rowPadding > 0) {
             val cropped = Bitmap.createBitmap(bitmap, 0, 0, width, height)
             bitmap.recycle()

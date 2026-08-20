@@ -2,4 +2,6 @@
 <paths>
     <files-path name="stitched" path="stitched/" />
     <files-path name="frames" path="frames/" />
+    <files-path name="sessions" path="sessions/" />
+    <files-path name="pdf" path="pdf/" />
 </paths>
