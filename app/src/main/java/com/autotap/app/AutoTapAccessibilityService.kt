@@ -2,6 +2,7 @@ package com.autotap.app
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
+import android.accessibilityservice.GestureDescription.GestureResultCallback
 import android.graphics.Path
 import android.os.Build
 import android.view.accessibility.AccessibilityEvent
@@ -56,13 +57,19 @@ class AutoTapAccessibilityService : AccessibilityService() {
     /** Dispatch a raw tap gesture at the given screen coordinates. */
     fun tapAt(x: Int, y: Int): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return false
+
         val path = Path().apply {
             moveTo(x.toFloat(), y.toFloat())
-            lineTo(x.toFloat() + 1f, y.toFloat() + 1f)
+            // Must have a visible path (≥10px) for the gesture to be recognized
+            lineTo(x.toFloat() + 10f, y.toFloat())
         }
-        val stroke = GestureDescription.StrokeDescription(path, 0, 50)
+        val stroke = GestureDescription.StrokeDescription(path, 0, 150)
         val gesture = GestureDescription.Builder().addStroke(stroke).build()
-        return dispatchGesture(gesture, null, null)
+
+        return dispatchGesture(gesture, object : GestureResultCallback() {
+            override fun onCompleted(gestureDescription: GestureDescription) { }
+            override fun onCancelled(gestureDescription: GestureDescription) { }
+        }, null)
     }
 
     /**
