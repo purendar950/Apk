@@ -36,7 +36,6 @@ data class CaptureSession(
         return pdfPath?.let { File(it) }.takeIf { it?.exists() == true }
     }
 
-    fun totalFrames() = frameFiles(/* context not available */ null as Context?).size
 }
 
 object SessionManager {

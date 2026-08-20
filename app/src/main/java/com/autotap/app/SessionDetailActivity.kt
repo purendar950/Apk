@@ -23,7 +23,7 @@ class SessionDetailActivity : AppCompatActivity() {
 
     private val authority by lazy { "$packageName.fileprovider" }
     private val scope = CoroutineScope(Dispatchers.Main)
-    private lateinit var session: CaptureSession
+    private var session: CaptureSession? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -36,13 +36,13 @@ class SessionDetailActivity : AppCompatActivity() {
         if (session == null) { Toast.makeText(this, "Session not found", Toast.LENGTH_SHORT).show(); finish(); return }
 
         findViewById<Button>(R.id.btnBack).setOnClickListener { finish() }
-        findViewById<TextView>(R.id.tvTitle).text = session.dateFormatted()
+        findViewById<TextView>(R.id.tvTitle).text = session!!.dateFormatted()
 
         val container = findViewById<LinearLayout>(R.id.container)
         val tvEmpty = findViewById<TextView>(R.id.tvEmpty)
 
-        val stitched = session.stitchedFileObjects(this)
-        val frames = session.frameFiles(this)
+        val stitched = session!!.stitchedFileObjects(this)
+        val frames = session!!.frameFiles(this)
 
         if (stitched.isEmpty() && frames.isEmpty()) {
             tvEmpty.visibility = View.VISIBLE
