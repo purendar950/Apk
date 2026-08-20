@@ -53,22 +53,46 @@ class AutoTapAccessibilityService : AccessibilityService() {
         return ok
     }
 
-    /** Dispatch a raw tap gesture at the given screen coordinates. */
+    /** Tap at screen coordinates by finding the node at that point and clicking it. */
     fun tapAt(x: Int, y: Int): Boolean {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return false
-
-        val path = Path().apply {
-            moveTo(x.toFloat(), y.toFloat())
-            // Must have a visible path (≥10px) for the gesture to be recognized
-            lineTo(x.toFloat() + 10f, y.toFloat())
+        val root = rootInActiveWindow ?: return false
+        val node = findNodeAtPoint(root, x, y)
+        if (node != null) {
+            val clicked = node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            node.recycle()
+            root.recycle()
+            return clicked
         }
-        val stroke = GestureDescription.StrokeDescription(path, 0, 150)
-        val gesture = GestureDescription.Builder().addStroke(stroke).build()
+        root.recycle()
+        // Fallback: use gesture dispatch if node not found
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            val path = Path().apply {
+                moveTo(x.toFloat(), y.toFloat())
+                lineTo(x.toFloat() + 10f, y.toFloat())
+            }
+            val stroke = GestureDescription.StrokeDescription(path, 0, 150)
+            val gesture = GestureDescription.Builder().addStroke(stroke).build()
+            return dispatchGesture(gesture, null, null)
+        }
+        return false
+    }
 
-        return dispatchGesture(gesture, object : AccessibilityService.GestureResultCallback() {
-            override fun onCompleted(gestureDescription: GestureDescription) { }
-            override fun onCancelled(gestureDescription: GestureDescription) { }
-        }, null)
+    private fun findNodeAtPoint(root: AccessibilityNodeInfo, x: Int, y: Int): AccessibilityNodeInfo? {
+        val queue = ArrayDeque<AccessibilityNodeInfo>()
+        queue.add(root)
+        while (queue.isNotEmpty()) {
+            val node = queue.removeFirst()
+            val bounds = android.graphics.Rect()
+            node.getBoundsInScreen(bounds)
+            if (bounds.contains(x, y) && node.isClickable) {
+                return node
+            }
+            for (i in 0 until node.childCount) {
+                node.getChild(i)?.let { queue.add(it) }
+            }
+            if (node !== root) node.recycle()
+        }
+        return null
     }
 
     /**
