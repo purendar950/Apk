@@ -7,7 +7,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest   # x86-64 Linux — native AAPT2, no emulation needed
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -18,14 +18,13 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      - name: Set up Android SDK
+      - name: Set up Android SDK + install packages
         uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-34 build-tools;34.0.0'
 
-      - name: Install SDK packages & accept licenses
-        run: |
-          SDKMANAGER=$(find "$ANDROID_HOME" -name sdkmanager -type f | head -1)
-          yes | "$SDKMANAGER" --licenses
-          yes | "$SDKMANAGER" "platforms;android-34" "build-tools;34.0.0"
+      - name: Accept SDK licenses
+        run: yes | /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager --licenses || true
 
       - name: Point Gradle at the SDK
         run: echo "sdk.dir=$ANDROID_HOME" > local.properties
