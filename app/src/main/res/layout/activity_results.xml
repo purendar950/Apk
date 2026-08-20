@@ -15,14 +15,47 @@
             android:layout_width="0dp"
             android:layout_weight="1"
             android:layout_height="wrap_content"
-            android:text="Open latest in viewer" />
+            android:text="Open latest"
+            android:textAllCaps="false"
+            android:textSize="12sp" />
 
         <Button
             android:id="@+id/btnShare"
             android:layout_width="0dp"
             android:layout_weight="1"
             android:layout_height="wrap_content"
-            android:text="Share latest" />
+            android:text="Share latest"
+            android:textAllCaps="false"
+            android:textSize="12sp" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp"
+        android:paddingBottom="8dp">
+
+        <Button
+            android:id="@+id/btnSavePdf"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:text="Save as PDF"
+            android:textAllCaps="false"
+            android:textSize="12sp"
+            android:backgroundTint="#4CAF50" />
+
+        <Button
+            android:id="@+id/btnSharePdf"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:text="Share PDF"
+            android:textAllCaps="false"
+            android:textSize="12sp"
+            android:backgroundTint="#2196F3" />
     </LinearLayout>
 
     <TextView

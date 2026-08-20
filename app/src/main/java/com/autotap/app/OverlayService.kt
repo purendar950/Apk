@@ -23,7 +23,6 @@ class OverlayService : Service() {
     companion object {
         const val ACTION_OVERLAY_START = "com.autotap.app.OVERLAY_START"
         private const val TAG = "AutoTapOverlay"
-
         const val ACTION_HIDE_MARKER = "com.autotap.app.HIDE_MARKER"
         const val ACTION_SHOW_MARKER = "com.autotap.app.SHOW_MARKER"
     }
@@ -33,6 +32,7 @@ class OverlayService : Service() {
     private lateinit var statusText: TextView
     private lateinit var btnPlace: Button
     private lateinit var toggleButton: Button
+    private lateinit var panelParams: WindowManager.LayoutParams
     private var markerView: View? = null
     private var markerParams: WindowManager.LayoutParams? = null
     private var catchLayer: View? = null
@@ -55,12 +55,8 @@ class OverlayService : Service() {
                     statusText.text = "Done ($pages pages)"
                     toggleButton.text = "Start"
                 }
-                ACTION_HIDE_MARKER -> {
-                    hideMarkerForTap()
-                }
-                ACTION_SHOW_MARKER -> {
-                    showMarkerAfterTap()
-                }
+                ACTION_HIDE_MARKER -> hideMarkerForTap()
+                ACTION_SHOW_MARKER -> showMarkerAfterTap()
             }
         }
     }
@@ -78,9 +74,10 @@ class OverlayService : Service() {
         val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
         } else {
+            @Suppress("DEPRECATION")
             WindowManager.LayoutParams.TYPE_PHONE
         }
-        val panelParams = WindowManager.LayoutParams(
+        panelParams = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             type,
@@ -92,6 +89,8 @@ class OverlayService : Service() {
             y = 120
         }
         windowManager.addView(panelView, panelParams)
+
+        makePanelDraggable()
 
         btnPlace.setOnClickListener { enterPlacementMode(type) }
         toggleButton.setOnClickListener { if (running) stopRun() else requestStart() }
@@ -105,7 +104,47 @@ class OverlayService : Service() {
         ContextCompat.registerReceiver(this, receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
     }
 
-    /** Hide the marker overlay so it doesn't intercept dispatchGesture events. */
+    private fun makePanelDraggable() {
+        var downX = 0f
+        var downY = 0f
+        var paramX = 0
+        var paramY = 0
+        var dragging = false
+
+        panelView.setOnTouchListener { v, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    downX = event.rawX
+                    downY = event.rawY
+                    paramX = panelParams.x
+                    paramY = panelParams.y
+                    dragging = false
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = event.rawX - downX
+                    val dy = event.rawY - downY
+                    if (!dragging && (Math.abs(dx) > 10 || Math.abs(dy) > 10)) {
+                        dragging = true
+                    }
+                    if (dragging) {
+                        panelParams.x = paramX + dx.toInt()
+                        panelParams.y = paramY + dy.toInt()
+                        windowManager.updateViewLayout(panelView, panelParams)
+                    }
+                    true
+                }
+                MotionEvent.ACTION_UP -> {
+                    if (!dragging) {
+                        v.performClick()
+                    }
+                    true
+                }
+                else -> false
+            }
+        }
+    }
+
     private fun hideMarkerForTap() {
         if (markerView?.visibility == View.VISIBLE) {
             markerView?.visibility = View.INVISIBLE
@@ -114,7 +153,6 @@ class OverlayService : Service() {
         }
     }
 
-    /** Restore the marker after the tap is dispatched. */
     private fun showMarkerAfterTap() {
         if (!markerVisible && markerView != null) {
             markerView?.visibility = View.VISIBLE
@@ -139,9 +177,7 @@ class OverlayService : Service() {
                     placeTarget(event.rawX.toInt(), event.rawY.toInt())
                     removeCatchLayer()
                     true
-                } else {
-                    false
-                }
+                } else false
             }
         }
         catchLayer = layer
@@ -169,7 +205,7 @@ class OverlayService : Service() {
                 size, size,
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
                     WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-                else WindowManager.LayoutParams.TYPE_PHONE,
+                else @Suppress("DEPRECATION") WindowManager.LayoutParams.TYPE_PHONE,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
                 PixelFormat.TRANSLUCENT
             ).apply { gravity = Gravity.TOP or Gravity.START }
@@ -192,30 +228,19 @@ class OverlayService : Service() {
         markerView?.setOnTouchListener { _, event ->
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
-                    downX = event.rawX
-                    downY = event.rawY
-                    startX = markerParams?.x ?: 0
-                    startY = markerParams?.y ?: 0
-                    isDragging = false
-                    true
+                    downX = event.rawX; downY = event.rawY
+                    startX = markerParams?.x ?: 0; startY = markerParams?.y ?: 0
+                    isDragging = false; true
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    val dx = event.rawX - downX
-                    val dy = event.rawY - downY
+                    val dx = event.rawX - downX; val dy = event.rawY - downY
                     if (Math.abs(dx) > 10 || Math.abs(dy) > 10) isDragging = true
                     markerParams?.apply {
-                        x = startX + dx.toInt()
-                        y = startY + dy.toInt()
+                        x = startX + dx.toInt(); y = startY + dy.toInt()
                         windowManager.updateViewLayout(markerView, this)
-                    }
-                    true
+                    }; true
                 }
-                MotionEvent.ACTION_UP -> {
-                    if (isDragging) {
-                        persistMarkerTarget(size)
-                    }
-                    true
-                }
+                MotionEvent.ACTION_UP -> { if (isDragging) persistMarkerTarget(size); true }
                 else -> false
             }
         }
@@ -223,8 +248,7 @@ class OverlayService : Service() {
 
     private fun persistMarkerTarget(size: Int) {
         val p = markerParams ?: return
-        val cx = p.x + size / 2
-        val cy = p.y + size / 2
+        val cx = p.x + size / 2; val cy = p.y + size / 2
         val cfg = ConfigStore.load(this)
         ConfigStore.save(this, cfg.copy(useRawTap = true, tapX = cx, tapY = cy))
     }

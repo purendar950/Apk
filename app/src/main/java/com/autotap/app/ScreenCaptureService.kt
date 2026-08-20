@@ -195,6 +195,16 @@ class ScreenCaptureService : android.app.Service() {
             val outDir = File(filesDir, "stitched").apply { mkdirs() }
             val pages = FrameStitcher.stitch(frames, outDir, maxWidth = 1080)
             val galleryUris = pages.mapNotNull { GallerySaver.save(this@ScreenCaptureService, it, it.name) }
+
+            // Auto-generate PDF from stitched images
+            val pdfFile = withContext(Dispatchers.IO) {
+                PdfGenerator.createPdf(this@ScreenCaptureService, pages)
+            }
+            if (pdfFile != null) {
+                withContext(Dispatchers.IO) { PdfGenerator.saveToGallery(this@ScreenCaptureService, pdfFile) }
+                Log.d(TAG, "PDF auto-generated: ${pdfFile.name}")
+            }
+
             running = false
             broadcastDone(pages, galleryUris)
             stopCapture()

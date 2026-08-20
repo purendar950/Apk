@@ -13,17 +13,18 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.FileProvider
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 
-/**
- * Shows the stitched capture results stored under `filesDir/stitched`.
- * Each page is decoded at screen width to keep memory reasonable, listed
- * top-to-bottom, and the newest page can be opened or shared via a
- * [FileProvider] content URI.
- */
 class ResultsActivity : AppCompatActivity() {
 
     private val authority by lazy { "$packageName.fileprovider" }
+    private val scope = CoroutineScope(Dispatchers.Main)
+
+    private lateinit var stitchedFiles: List<File>
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -33,22 +34,26 @@ class ResultsActivity : AppCompatActivity() {
         val tvEmpty = findViewById<TextView>(R.id.tvEmpty)
         val btnOpen = findViewById<Button>(R.id.btnOpenExternal)
         val btnShare = findViewById<Button>(R.id.btnShare)
+        val btnSavePdf = findViewById<Button>(R.id.btnSavePdf)
+        val btnSharePdf = findViewById<Button>(R.id.btnSharePdf)
 
         val dir = File(filesDir, "stitched")
-        val files = dir.listFiles()
+        stitchedFiles = dir.listFiles()
             ?.filter { it.name.endsWith(".png") }
             ?.sortedBy { it.name }
             ?: emptyList()
 
-        if (files.isEmpty()) {
+        if (stitchedFiles.isEmpty()) {
             tvEmpty.visibility = android.view.View.VISIBLE
             btnOpen.isEnabled = false
             btnShare.isEnabled = false
+            btnSavePdf.isEnabled = false
+            btnSharePdf.isEnabled = false
             return
         }
 
         val maxWidth = resources.displayMetrics.widthPixels
-        for (file in files) {
+        for (file in stitchedFiles) {
             val iv = ImageView(this).apply {
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
@@ -61,9 +66,64 @@ class ResultsActivity : AppCompatActivity() {
             container.addView(iv)
         }
 
-        val latest = files.last()
+        val latest = stitchedFiles.last()
         btnOpen.setOnClickListener { openExternal(latest) }
         btnShare.setOnClickListener { shareExternal(latest) }
+
+        btnSavePdf.setOnClickListener { savePdf() }
+        btnSharePdf.setOnClickListener { sharePdf() }
+    }
+
+    private fun savePdf() {
+        if (stitchedFiles.isEmpty()) return
+        btnSavePdf.isEnabled = false
+        btnSavePdf.text = "Generating…"
+        scope.launch {
+            val pdf = withContext(Dispatchers.IO) {
+                PdfGenerator.createPdf(this@ResultsActivity, stitchedFiles)
+            }
+            if (pdf != null) {
+                val saved = withContext(Dispatchers.IO) {
+                    PdfGenerator.saveToGallery(this@ResultsActivity, pdf)
+                }
+                val msg = if (saved != null) {
+                    "PDF saved to Documents/AutoTap/${pdf.name}"
+                } else {
+                    "PDF saved to app storage: ${pdf.name}"
+                }
+                Toast.makeText(this@ResultsActivity, msg, Toast.LENGTH_LONG).show()
+                btnSavePdf.text = "Save as PDF"
+                btnSavePdf.isEnabled = true
+            } else {
+                Toast.makeText(this@ResultsActivity, "Failed to create PDF", Toast.LENGTH_SHORT).show()
+                btnSavePdf.text = "Save as PDF"
+                btnSavePdf.isEnabled = true
+            }
+        }
+    }
+
+    private fun sharePdf() {
+        if (stitchedFiles.isEmpty()) return
+        btnSharePdf.isEnabled = false
+        btnSharePdf.text = "Generating…"
+        scope.launch {
+            val pdf = withContext(Dispatchers.IO) {
+                PdfGenerator.createPdf(this@ResultsActivity, stitchedFiles)
+            }
+            if (pdf != null) {
+                val uri = FileProvider.getUriForFile(this@ResultsActivity, authority, pdf)
+                val intent = Intent(Intent.ACTION_SEND).apply {
+                    type = "application/pdf"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                startActivity(Intent.createChooser(intent, "Share PDF"))
+            } else {
+                Toast.makeText(this@ResultsActivity, "Failed to create PDF", Toast.LENGTH_SHORT).show()
+            }
+            btnSharePdf.text = "Share PDF"
+            btnSharePdf.isEnabled = true
+        }
     }
 
     private fun decodeScaled(file: File, maxWidth: Int): Bitmap {
@@ -77,30 +137,23 @@ class ResultsActivity : AppCompatActivity() {
         )
     }
 
-    private fun uriFor(file: File): Uri =
-        FileProvider.getUriForFile(this, authority, file)
-
     private fun openExternal(file: File) {
-        val uri = uriFor(file)
+        val uri = FileProvider.getUriForFile(this, authority, file)
         val intent = Intent(Intent.ACTION_VIEW).apply {
             setDataAndType(uri, "image/png")
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         runCatching { startActivity(intent) }
-            .onFailure { showToast("No image viewer available") }
+            .onFailure { Toast.makeText(this, "No image viewer available", Toast.LENGTH_SHORT).show() }
     }
 
     private fun shareExternal(file: File) {
-        val uri = uriFor(file)
+        val uri = FileProvider.getUriForFile(this, authority, file)
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = "image/png"
             putExtra(Intent.EXTRA_STREAM, uri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         startActivity(Intent.createChooser(intent, "Share result"))
-    }
-
-    private fun showToast(msg: String) {
-        Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
     }
 }

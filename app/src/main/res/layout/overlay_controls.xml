@@ -8,6 +8,15 @@
     android:gravity="center">
 
     <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="⋮⋮ Drag here ⋮⋮"
+        android:textColor="#AAAAAA"
+        android:textSize="10sp"
+        android:gravity="center"
+        android:paddingBottom="4dp" />
+
+    <TextView
         android:id="@+id/overlayStatus"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
@@ -20,12 +29,14 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="Place target"
-        android:textAllCaps="false" />
+        android:textAllCaps="false"
+        android:textSize="12sp" />
 
     <Button
         android:id="@+id/btnToggle"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="Start"
-        android:textAllCaps="false" />
+        android:textAllCaps="false"
+        android:textSize="12sp" />
 </LinearLayout>
