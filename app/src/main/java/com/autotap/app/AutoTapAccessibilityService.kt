@@ -65,7 +65,7 @@ class AutoTapAccessibilityService : AccessibilityService() {
         val stroke = GestureDescription.StrokeDescription(path, 0, 150)
         val gesture = GestureDescription.Builder().addStroke(stroke).build()
 
-        return dispatchGesture(gesture, object : GestureDescription.GestureResultCallback() {
+        return dispatchGesture(gesture, object : AccessibilityService.GestureResultCallback() {
             override fun onCompleted(gestureDescription: GestureDescription) { }
             override fun onCancelled(gestureDescription: GestureDescription) { }
         }, null)
