@@ -9,7 +9,7 @@ import android.media.Image
  * [Bitmap]. The image is closed by this function; do not reuse it afterwards.
  */
 fun imageToBitmap(image: Image): Bitmap {
-    require(image.format == ImageFormat.RGBA_8888) {
+    require(image.format == 0x1) {
         "Expected RGBA_8888 image, got format ${image.format}"
     }
     val width = image.width

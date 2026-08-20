@@ -25,6 +25,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
@@ -150,7 +151,7 @@ class ScreenCaptureService : android.app.Service() {
                 ?: emptyList()
             val outDir = File(filesDir, "stitched").apply { mkdirs() }
             val pages = FrameStitcher.stitch(frames, outDir, maxWidth = 1080)
-            val galleryUris = pages.mapNotNull { GallerySaver.save(this, it, it.name) }
+            val galleryUris = pages.mapNotNull { GallerySaver.save(this@ScreenCaptureService, it, it.name) }
             running = false
             broadcastDone(pages, galleryUris)
             stopCapture()
