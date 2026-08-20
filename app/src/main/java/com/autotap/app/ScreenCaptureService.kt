@@ -171,9 +171,14 @@ class ScreenCaptureService : android.app.Service() {
             var captured = 0
             broadcastProgress(captured, config.questionCount)
 
-            // Give user time to switch to target app
-            Log.d(TAG, "Starting in 2 seconds — switch to target app now!")
-            delay(2000)
+            // 5-second countdown so user can switch to target app
+            for (i in 5 downTo 1) {
+                if (!running) return@launch
+                updateNotification("Starting in $i — switch to target app!")
+                Log.d(TAG, "Starting in $i seconds")
+                delay(1000)
+            }
+            updateNotification("Capturing…")
 
             repeat(config.questionCount) {
                 if (!running) return@launch

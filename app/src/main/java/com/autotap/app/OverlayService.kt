@@ -1,11 +1,13 @@
 package com.autotap.app
 
+import android.app.Activity
 import android.app.Service
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.PixelFormat
+import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
@@ -16,6 +18,7 @@ import android.view.View
 import android.view.WindowManager
 import android.widget.Button
 import android.widget.TextView
+import android.widget.Toast
 import androidx.core.content.ContextCompat
 
 class OverlayService : Service() {
@@ -25,6 +28,8 @@ class OverlayService : Service() {
         private const val TAG = "AutoTapOverlay"
         const val ACTION_HIDE_MARKER = "com.autotap.app.HIDE_MARKER"
         const val ACTION_SHOW_MARKER = "com.autotap.app.SHOW_MARKER"
+        private const val PROJECTION_REQUEST = 9999
+        @Volatile var instance: OverlayService? = null
     }
 
     private lateinit var windowManager: WindowManager
@@ -38,6 +43,10 @@ class OverlayService : Service() {
     private var catchLayer: View? = null
     private var running = false
     private var markerVisible = true
+
+    // Store projection data for when the activity result comes back
+    private var pendingResultCode = 0
+    private var pendingResultData: Intent? = null
 
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -93,7 +102,13 @@ class OverlayService : Service() {
         makePanelDraggable()
 
         btnPlace.setOnClickListener { enterPlacementMode(type) }
-        toggleButton.setOnClickListener { if (running) stopRun() else requestStart() }
+        toggleButton.setOnClickListener {
+            if (running) {
+                stopRun()
+            } else {
+                startCaptureFlow()
+            }
+        }
 
         val filter = IntentFilter().apply {
             addAction(ScreenCaptureService.ACTION_PROGRESS)
@@ -102,6 +117,58 @@ class OverlayService : Service() {
             addAction(ACTION_SHOW_MARKER)
         }
         ContextCompat.registerReceiver(this, receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+        instance = this
+    }
+
+    /**
+     * Full capture flow: check accessibility → request projection → start with delay.
+     * No bouncing to MainActivity.
+     */
+    private fun startCaptureFlow() {
+        if (!isAccessibilityEnabled()) {
+            Toast.makeText(this, "Enable AutoTap accessibility service first", Toast.LENGTH_LONG).show()
+            return
+        }
+
+        // Check if config has a placed target
+        val cfg = ConfigStore.load(this)
+        if (!cfg.useRawTap || (cfg.tapX == 0 && cfg.tapY == 0)) {
+            Toast.makeText(this, "Place a target first", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        statusText.text = "Requesting permission…"
+        toggleButton.isEnabled = false
+
+        // Request MediaProjection via a transparent activity
+        val intent = Intent(this, ProjectionRequestActivity::class.java).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        startActivity(intent)
+    }
+
+    fun onProjectionGranted(resultCode: Int, data: Intent) {
+        toggleButton.isEnabled = true
+        val config = ConfigStore.load(this)
+        val intent = ScreenCaptureService.buildStartIntent(this, resultCode, data, config)
+        ContextCompat.startForegroundService(this, intent)
+        running = true
+        toggleButton.text = "Stop"
+        statusText.text = "Starting… switching to target app!"
+    }
+
+    fun onProjectionDenied() {
+        toggleButton.isEnabled = true
+        statusText.text = "Permission denied"
+    }
+
+    private fun isAccessibilityEnabled(): Boolean {
+        val enabled = android.provider.Settings.Secure.getString(
+            contentResolver, android.provider.Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+        ) ?: return false
+        return enabled.split(":").any {
+            it.equals("$packageName/com.autotap.app.AutoTapAccessibilityService", ignoreCase = true)
+        }
     }
 
     private fun makePanelDraggable() {
@@ -114,32 +181,20 @@ class OverlayService : Service() {
         panelView.setOnTouchListener { v, event ->
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
-                    downX = event.rawX
-                    downY = event.rawY
-                    paramX = panelParams.x
-                    paramY = panelParams.y
-                    dragging = false
-                    true
+                    downX = event.rawX; downY = event.rawY
+                    paramX = panelParams.x; paramY = panelParams.y
+                    dragging = false; true
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    val dx = event.rawX - downX
-                    val dy = event.rawY - downY
-                    if (!dragging && (Math.abs(dx) > 10 || Math.abs(dy) > 10)) {
-                        dragging = true
-                    }
+                    val dx = event.rawX - downX; val dy = event.rawY - downY
+                    if (!dragging && (Math.abs(dx) > 10 || Math.abs(dy) > 10)) dragging = true
                     if (dragging) {
                         panelParams.x = paramX + dx.toInt()
                         panelParams.y = paramY + dy.toInt()
                         windowManager.updateViewLayout(panelView, panelParams)
-                    }
-                    true
+                    }; true
                 }
-                MotionEvent.ACTION_UP -> {
-                    if (!dragging) {
-                        v.performClick()
-                    }
-                    true
-                }
+                MotionEvent.ACTION_UP -> { if (!dragging) v.performClick(); true }
                 else -> false
             }
         }
@@ -149,7 +204,6 @@ class OverlayService : Service() {
         if (markerView?.visibility == View.VISIBLE) {
             markerView?.visibility = View.INVISIBLE
             markerVisible = false
-            Log.d(TAG, "Marker hidden for tap")
         }
     }
 
@@ -157,7 +211,6 @@ class OverlayService : Service() {
         if (!markerVisible && markerView != null) {
             markerView?.visibility = View.VISIBLE
             markerVisible = true
-            Log.d(TAG, "Marker restored after tap")
         }
     }
 
@@ -213,18 +266,13 @@ class OverlayService : Service() {
             windowManager.addView(markerView, markerParams)
         }
         markerParams?.apply {
-            this.x = x - size / 2
-            this.y = y - size / 2
+            this.x = x - size / 2; this.y = y - size / 2
             windowManager.updateViewLayout(markerView, this)
         }
     }
 
     private fun attachMarkerDrag(size: Int) {
-        var downX = 0f
-        var downY = 0f
-        var startX = 0
-        var startY = 0
-        var isDragging = false
+        var downX = 0f; var downY = 0f; var startX = 0; var startY = 0; var isDragging = false
         markerView?.setOnTouchListener { _, event ->
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
@@ -253,16 +301,10 @@ class OverlayService : Service() {
         ConfigStore.save(this, cfg.copy(useRawTap = true, tapX = cx, tapY = cy))
     }
 
-    private fun requestStart() {
-        sendBroadcast(Intent(ACTION_OVERLAY_START).apply { setPackage(packageName) })
-    }
-
     private fun stopRun() {
-        startService(
-            Intent(this, ScreenCaptureService::class.java).apply {
-                action = ScreenCaptureService.ACTION_STOP
-            }
-        )
+        startService(Intent(this, ScreenCaptureService::class.java).apply {
+            action = ScreenCaptureService.ACTION_STOP
+        })
     }
 
     override fun onDestroy() {
@@ -270,6 +312,7 @@ class OverlayService : Service() {
         runCatching { windowManager.removeView(panelView) }
         runCatching { markerView?.let { windowManager.removeView(it) } }
         runCatching { removeCatchLayer() }
+        instance = null
         super.onDestroy()
     }
 }
