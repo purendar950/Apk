@@ -62,8 +62,10 @@ object SessionManager {
                         questionCount = obj.getInt("questionCount"),
                         frameCount = obj.optInt("frameCount", 0),
                         sessionDir = obj.optString("sessionDir", ""),
-                        stitchedFiles = (0 until obj.optJSONArray("stitchedFiles")?.length() ?: 0)
-                            .map { j -> obj.optJSONArray("stitchedFiles")!!.getString(j) },
+                        stitchedFiles = run {
+                            val arr = obj.optJSONArray("stitchedFiles")
+                            if (arr != null) (0 until arr.length()).map { arr.getString(it) } else emptyList()
+                        },
                         pdfPath = if (obj.has("pdfPath") && !obj.isNull("pdfPath")) obj.getString("pdfPath") else null
                     )
                 } catch (e: Exception) {
