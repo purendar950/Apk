@@ -37,6 +37,7 @@ class OverlayService : Service() {
     private lateinit var statusText: TextView
     private lateinit var btnPlace: Button
     private lateinit var toggleButton: Button
+    private lateinit var btnRestart: Button
     private lateinit var panelParams: WindowManager.LayoutParams
     private var markerView: View? = null
     private var markerParams: WindowManager.LayoutParams? = null
@@ -79,6 +80,7 @@ class OverlayService : Service() {
         statusText = panelView.findViewById(R.id.overlayStatus)
         btnPlace = panelView.findViewById(R.id.btnPlace)
         toggleButton = panelView.findViewById(R.id.btnToggle)
+        btnRestart = panelView.findViewById(R.id.btnRestart)
 
         val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
@@ -108,6 +110,15 @@ class OverlayService : Service() {
             } else {
                 startCaptureFlow()
             }
+        }
+
+        btnRestart.setOnClickListener {
+            Toast.makeText(this, "Restarting capture…", Toast.LENGTH_SHORT).show()
+            stopRun()
+            // Small delay to let the old capture fully stop
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                startCaptureFlow()
+            }, 500)
         }
 
         val filter = IntentFilter().apply {

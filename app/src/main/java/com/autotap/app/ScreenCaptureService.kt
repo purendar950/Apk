@@ -20,6 +20,7 @@ import android.os.Looper
 import android.util.DisplayMetrics
 import android.util.Log
 import android.view.WindowManager
+import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -96,6 +97,7 @@ class ScreenCaptureService : android.app.Service() {
 
     @Volatile
     private var running = false
+    private var wakeLock: PowerManager.WakeLock? = null
 
     override fun onBind(intent: Intent?) = null
 
@@ -128,6 +130,12 @@ class ScreenCaptureService : android.app.Service() {
         val config = parseConfig(intent)
         if (!setupProjection(resultCode, data)) { stopSelf(); return }
         running = true
+
+        // Keep screen on during capture
+        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+        wakeLock = pm.newWakeLock(PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP, "AutoTap::Capture")
+        wakeLock?.acquire(10 * 60 * 1000L) // 10 min max
+
         runLoop(config)
     }
 
@@ -294,6 +302,8 @@ class ScreenCaptureService : android.app.Service() {
             return
         }
         running = false
+        try { wakeLock?.release() } catch (_: Exception) { }
+        wakeLock = null
         try { virtualDisplay?.release() } catch (_: Exception) { }
         try { imageReader?.close() } catch (_: Exception) { }
         try { mediaProjection?.stop() } catch (_: Exception) { }
