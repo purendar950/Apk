@@ -34,8 +34,7 @@ class DashboardActivity : AppCompatActivity() {
     private val scope = CoroutineScope(Dispatchers.Main)
 
     // Multi-select state
-    private val selectedImages = mutableListOf<File>()
-    private val selectedPdfs = mutableListOf<File>()
+    private val selectedFiles = mutableListOf<File>()
     private var selectMode = false
     private lateinit var tvSelectBar: TextView
     private lateinit var btnSelectAll: Button
@@ -73,12 +72,38 @@ class DashboardActivity : AppCompatActivity() {
         scrollContainer.removeAllViews()
         cardViews.clear()
         allSessions.clear()
-        exitSelectMode()
+        selectedFiles.clear()
+        selectMode = false
+        selectBar.visibility = View.GONE
 
         try {
-            val sessions = SessionManager.loadAllSessions(this)
-            allSessions.addAll(sessions)
-            Log.d(TAG, "Loaded ${sessions.size} sessions")
+            // Load tracked sessions
+            val sessions = SessionManager.loadAllSessions(this).toMutableList()
+
+            // Also scan for orphaned stitched files (from older versions)
+            val knownIds = sessions.map { it.id }.toSet()
+            val stitchedDir = File(filesDir, "stitched")
+            if (stitchedDir.exists()) {
+                val orphans = stitchedDir.listFiles()?.filter { it.name.endsWith(".png") }?.sortedBy { it.name }
+                if (!orphans.isNullOrEmpty()) {
+                    // Group all orphans into one pseudo-session
+                    val orphanSession = CaptureSession(
+                        id = "legacy_stitched",
+                        timestamp = orphans.firstOrNull()?.lastModified() ?: System.currentTimeMillis(),
+                        questionCount = 0,
+                        frameCount = orphans.size,
+                        sessionDir = stitchedDir.absolutePath,
+                        stitchedFiles = orphans.map { it.absolutePath },
+                        pdfPath = null
+                    )
+                    sessions.add(orphanSession)
+                }
+            }
+
+            // Sort newest first
+            sessions.sortByDescending { it.timestamp }
+
+            Log.d(TAG, "Loaded ${sessions.size} sessions (including legacy)")
 
             if (sessions.isEmpty()) {
                 tvEmpty.visibility = View.VISIBLE
@@ -86,15 +111,22 @@ class DashboardActivity : AppCompatActivity() {
             }
 
             tvEmpty.visibility = View.GONE
+
+            // Number sequentially #1 (newest) to #N (oldest)
             for ((index, session) in sessions.withIndex()) {
-                val card = createSessionCard(session, index + 1)
-                cardViews.add(card)
-                scrollContainer.addView(card)
+                try {
+                    val card = createSessionCard(session, index + 1)
+                    cardViews.add(card)
+                    scrollContainer.addView(card)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to create card for session ${session.id}", e)
+                    // Skip this card but don't crash
+                }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to load sessions", e)
             tvEmpty.visibility = View.VISIBLE
-            tvEmpty.text = "Error: ${e.message}"
+            tvEmpty.text = "Error loading: ${e.message}"
         }
     }
 
@@ -103,59 +135,53 @@ class DashboardActivity : AppCompatActivity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(12), dp(10), dp(12), dp(10))
             setBackgroundColor(Color.parseColor("#2A2A2A"))
-            val lp = LinearLayout.LayoutParams(
+            layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-            lp.bottomMargin = dp(8)
-            layoutParams = lp
+            ).apply { bottomMargin = dp(8) }
         }
 
-        // Header row
+        // Header row: number + date + frame badge
         val header = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
 
-        val tvNumber = TextView(this).apply {
+        header.addView(TextView(this).apply {
             text = "#$number"
-            textSize = 14f
+            textSize = 15f
             setTextColor(Color.parseColor("#4CAF50"))
             setPadding(0, 0, dp(8), 0)
-        }
-        header.addView(tvNumber)
+        })
 
-        val tvDate = TextView(this).apply {
-            text = session.dateFormatted()
+        header.addView(TextView(this).apply {
+            text = try { session.dateFormatted() } catch (e: Exception) { session.id }
             textSize = 14f
             setTextColor(Color.parseColor("#EEEEEE"))
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-        }
-        header.addView(tvDate)
+        })
 
-        val tvBadge = TextView(this).apply {
+        header.addView(TextView(this).apply {
             text = "${session.frameCount} frames"
             textSize = 11f
             setTextColor(Color.parseColor("#AAAAAA"))
             setBackgroundColor(Color.parseColor("#333333"))
-            setPadding(dp(8), dp(2), dp(8), dp(2))
-        }
-        header.addView(tvBadge)
+            setPadding(dp(6), dp(2), dp(6), dp(2))
+        })
         card.addView(header)
 
         // Info line
-        val stitchCount = session.stitchedFiles.size
-        val hasPdf = session.pdfFile() != null
-        val tvInfo = TextView(this).apply {
+        val stitchCount = try { session.stitchedFileObjects(this@DashboardActivity).size } catch (e: Exception) { 0 }
+        val hasPdf = try { session.pdfFile() != null } catch (e: Exception) { false }
+        card.addView(TextView(this).apply {
             text = buildString {
-                append("Stitched: $stitchCount image(s)")
-                if (hasPdf) append(" • PDF ready")
+                append("Images: $stitchCount")
+                if (hasPdf) append(" • PDF ✓")
             }
             textSize = 12f
             setTextColor(Color.parseColor("#999999"))
             setPadding(0, dp(4), 0, dp(4))
-        }
-        card.addView(tvInfo)
+        })
 
         // Buttons row
         val btnRow = LinearLayout(this).apply {
@@ -166,38 +192,38 @@ class DashboardActivity : AppCompatActivity() {
         fun makeBtn(text: String, color: String, onClick: () -> Unit): Button {
             return Button(this).apply {
                 this.text = text
-                textSize = 12f
+                textSize = 11f
                 isAllCaps = false
                 setTextColor(Color.parseColor(color))
                 setBackgroundColor(Color.TRANSPARENT)
-                setPadding(dp(6), 0, dp(6), 0)
-                setOnClickListener { onClick() }
+                setPadding(dp(4), 0, dp(4), 0)
+                minWidth = 0
+                minimumWidth = 0
+                setOnClickListener { runCatching { onClick() } }
             }
         }
 
         btnRow.addView(makeBtn("View", "#4CAF50") { openDetail(session) })
-        btnRow.addView(makeBtn("Select", "#2196F3") { enterSelectMode(session) })
         btnRow.addView(makeBtn("Share Img", "#FF9800") { shareImages(session) })
         btnRow.addView(makeBtn("Share PDF", "#9C27B0") { sharePdf(session) })
         btnRow.addView(makeBtn("Delete", "#FF4444") { confirmDelete(session) })
-
         card.addView(btnRow)
 
-        // Thumbnail
-        val stitched = session.stitchedFileObjects(this)
+        // Thumbnail — load lazily with small size to avoid OOM
+        val stitched = try { session.stitchedFileObjects(this) } catch (e: Exception) { emptyList() }
         if (stitched.isNotEmpty()) {
             val iv = ImageView(this).apply {
-                layoutParams = LinearLayout.LayoutParams(dp(60), dp(90)).apply {
-                    topMargin = dp(8)
+                layoutParams = LinearLayout.LayoutParams(dp(48), dp(72)).apply {
+                    topMargin = dp(6)
                     gravity = Gravity.CENTER_HORIZONTAL
                 }
                 scaleType = ImageView.ScaleType.CENTER_CROP
-                setBackgroundColor(Color.parseColor("#1A1A1A"))
+                setBackgroundColor(Color.parseColor("#111111"))
             }
             card.addView(iv)
             iv.post {
                 try {
-                    iv.setImageBitmap(decodeSampled(stitched.first(), 120, 180))
+                    iv.setImageBitmap(decodeTiny(stitched.first()))
                 } catch (_: Exception) {}
             }
         }
@@ -205,144 +231,54 @@ class DashboardActivity : AppCompatActivity() {
         return card
     }
 
-    // ── Multi-select mode ────────────────────────────────────────────────
-
-    private fun enterSelectMode(fromSession: CaptureSession) {
-        selectMode = true
-        selectBar.visibility = View.VISIBLE
-        selectedImages.clear()
-        selectedPdfs.clear()
-
-        // Collect all images and PDFs from all sessions
-        for (s in allSessions) {
-            selectedImages.addAll(s.stitchedFileObjects(this))
-            val pdf = s.pdfFile()
-            if (pdf != null) selectedPdfs.add(pdf)
-        }
-
-        updateSelectBar()
-        // Highlight all cards
-        for (card in cardViews) {
-            card.setBackgroundColor(Color.parseColor("#1B3A1B"))
-        }
+    /** Decode very small thumbnail to avoid OutOfMemoryError */
+    private fun decodeTiny(file: File): Bitmap? {
+        return try {
+            val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(file.absolutePath, opts)
+            var sample = 1
+            while (opts.outWidth / (sample * 2) > 96 || opts.outHeight / (sample * 2) > 144) sample *= 2
+            BitmapFactory.decodeFile(file.absolutePath, BitmapFactory.Options().apply { inSampleSize = sample })
+        } catch (e: Exception) { null }
     }
 
-    private fun exitSelectMode() {
-        selectMode = false
-        selectBar.visibility = View.GONE
-        selectedImages.clear()
-        selectedPdfs.clear()
-        for (card in cardViews) {
-            card.setBackgroundColor(Color.parseColor("#2A2A2A"))
-        }
-    }
+    // ── Multi-select ─────────────────────────────────────────────────────
 
     private fun toggleSelectAll() {
-        if (!selectMode) return
-        // Already all selected → deselect; else select all
-        selectedImages.clear()
-        selectedPdfs.clear()
-        if (btnSelectAll.text == "Select All") {
-            for (s in allSessions) {
-                selectedImages.addAll(s.stitchedFileObjects(this))
-                val pdf = s.pdfFile()
-                if (pdf != null) selectedPdfs.add(pdf)
-            }
-            btnSelectAll.text = "Deselect All"
-        } else {
-            btnSelectAll.text = "Select All"
-        }
-        updateSelectBar()
-    }
-
-    private fun updateSelectBar() {
-        val imgCount = selectedImages.size
-        val pdfCount = selectedPdfs.size
-        tvSelectBar.text = "$imgCount image(s) + $pdfCount PDF(s) selected"
+        Toast.makeText(this, "Use Share Img / Share PDF per session", Toast.LENGTH_SHORT).show()
     }
 
     private fun shareSelected() {
-        val allFiles = mutableListOf<File>()
-        allFiles.addAll(selectedImages)
-        allFiles.addAll(selectedPdfs)
-
-        if (allFiles.isEmpty()) {
-            Toast.makeText(this, "Nothing selected", Toast.LENGTH_SHORT).show()
-            return
-        }
-
-        if (allFiles.size == 1) {
-            shareSingleFile(allFiles.first())
-        } else {
-            val uris = ArrayList(allFiles.map {
-                FileProvider.getUriForFile(this, "$packageName.fileprovider", it)
-            })
-            val mime = if (allFiles.all { it.name.endsWith(".pdf") }) {
-                "application/pdf"
-            } else if (allFiles.all { it.name.endsWith(".png") }) {
-                "image/png"
-            } else {
-                "*/*"
-            }
-            val intent = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
-                type = mime
-                putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-            startActivity(Intent.createChooser(intent, "Share ${allFiles.size} files"))
-        }
-        exitSelectMode()
+        if (selectedFiles.isEmpty()) return
+        shareFiles(selectedFiles.toList())
+        selectedFiles.clear()
+        selectBar.visibility = View.GONE
     }
 
-    private fun shareSingleFile(file: File) {
-        val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
-        val type = when {
-            file.name.endsWith(".pdf") -> "application/pdf"
-            file.name.endsWith(".png") -> "image/png"
-            else -> "*/*"
-        }
-        startActivity(Intent(Intent.ACTION_SEND).apply {
-            this.type = type
-            putExtra(Intent.EXTRA_STREAM, uri)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        })
-    }
-
-    // ── Single-session share ─────────────────────────────────────────────
+    // ── Sharing ──────────────────────────────────────────────────────────
 
     private fun shareImages(session: CaptureSession) {
-        val files = session.stitchedFileObjects(this)
+        val files = try { session.stitchedFileObjects(this) } catch (e: Exception) { emptyList() }
         if (files.isEmpty()) {
             Toast.makeText(this, "No images", Toast.LENGTH_SHORT).show()
             return
         }
-        if (files.size == 1) {
-            shareSingleFile(files.first())
-        } else {
-            val uris = ArrayList(files.map {
-                FileProvider.getUriForFile(this, "$packageName.fileprovider", it)
-            })
-            startActivity(Intent(Intent.ACTION_SEND_MULTIPLE).apply {
-                type = "image/png"
-                putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            })
-        }
+        shareFiles(files)
     }
 
     private fun sharePdf(session: CaptureSession) {
-        val pdfFile = session.pdfFile()
+        val pdfFile = try { session.pdfFile() } catch (e: Exception) { null }
         if (pdfFile != null) {
-            shareSingleFile(pdfFile)
+            shareFiles(listOf(pdfFile))
         } else {
             Toast.makeText(this, "Generating PDF…", Toast.LENGTH_SHORT).show()
             scope.launch {
-                val files = session.stitchedFileObjects(this@DashboardActivity)
+                val files = try { session.stitchedFileObjects(this@DashboardActivity) } catch (e: Exception) { emptyList<File>() }
                 val pdf = withContext(Dispatchers.IO) {
                     PdfGenerator.createPdf(this@DashboardActivity, files)
                 }
                 if (pdf != null) {
-                    shareSingleFile(pdf)
+                    shareFiles(listOf(pdf))
                 } else {
                     Toast.makeText(this@DashboardActivity, "PDF failed", Toast.LENGTH_SHORT).show()
                 }
@@ -350,12 +286,48 @@ class DashboardActivity : AppCompatActivity() {
         }
     }
 
+    private fun shareFiles(files: List<File>) {
+        try {
+            if (files.size == 1) {
+                val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", files.first())
+                startActivity(Intent(Intent.ACTION_SEND).apply {
+                    type = mimeFor(files.first())
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                })
+            } else {
+                val uris = ArrayList(files.mapNotNull {
+                    runCatching { FileProvider.getUriForFile(this, "$packageName.fileprovider", it) }.getOrNull()
+                })
+                val allPng = files.all { it.name.endsWith(".png") }
+                val allPdf = files.all { it.name.endsWith(".pdf") }
+                startActivity(Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+                    type = when {
+                        allPdf -> "application/pdf"
+                        allPng -> "image/png"
+                        else -> "*/*"
+                    }
+                    putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                })
+            }
+        } catch (e: Exception) {
+            Toast.makeText(this, "Share failed: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun mimeFor(file: File) = when {
+        file.name.endsWith(".pdf") -> "application/pdf"
+        file.name.endsWith(".png") -> "image/png"
+        else -> "*/*"
+    }
+
     // ── Other actions ────────────────────────────────────────────────────
 
     private fun confirmDelete(session: CaptureSession) {
         AlertDialog.Builder(this)
             .setTitle("Delete session")
-            .setMessage("Delete capture from ${session.dateFormatted()}?")
+            .setMessage("Delete capture #${allSessions.indexOf(session) + 1}?\nThis cannot be undone.")
             .setPositiveButton("Delete") { _, _ ->
                 SessionManager.deleteSession(this@DashboardActivity, session)
                 loadSessions()
@@ -371,20 +343,8 @@ class DashboardActivity : AppCompatActivity() {
                 putExtra("SESSION_ID", session.id)
             })
         } catch (e: Exception) {
-            Toast.makeText(this, "Cannot open", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Cannot open detail", Toast.LENGTH_SHORT).show()
         }
-    }
-
-    private fun decodeSampled(file: File, reqW: Int, reqH: Int): Bitmap? {
-        return try {
-            val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            BitmapFactory.decodeFile(file.absolutePath, opts)
-            var sample = 1
-            while (opts.outWidth / (sample * 2) > reqW || opts.outHeight / (sample * 2) > reqH) {
-                sample *= 2
-            }
-            BitmapFactory.decodeFile(file.absolutePath, BitmapFactory.Options().apply { inSampleSize = sample })
-        } catch (e: Exception) { null }
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()

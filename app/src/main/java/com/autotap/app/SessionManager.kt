@@ -53,19 +53,24 @@ object SessionManager {
         return try {
             val json = file.readText()
             val arr = JSONArray(json)
-            (0 until arr.length()).map { i ->
-                val obj = arr.getJSONObject(i)
-                CaptureSession(
-                    id = obj.getString("id"),
-                    timestamp = obj.getLong("timestamp"),
-                    questionCount = obj.getInt("questionCount"),
-                    frameCount = obj.getInt("frameCount"),
-                    sessionDir = obj.getString("sessionDir"),
-                    stitchedFiles = (0 until obj.getJSONArray("stitchedFiles").length())
-                        .map { obj.getJSONArray("stitchedFiles").getString(it) },
-                    pdfPath = if (obj.has("pdfPath") && !obj.isNull("pdfPath")) obj.getString("pdfPath") else null
-                )
+            val sessions = (0 until arr.length()).mapNotNull { i ->
+                try {
+                    val obj = arr.getJSONObject(i)
+                    CaptureSession(
+                        id = obj.getString("id"),
+                        timestamp = obj.getLong("timestamp"),
+                        questionCount = obj.getInt("questionCount"),
+                        frameCount = obj.optInt("frameCount", 0),
+                        sessionDir = obj.optString("sessionDir", ""),
+                        stitchedFiles = (0 until obj.optJSONArray("stitchedFiles")?.length() ?: 0)
+                            .map { j -> obj.optJSONArray("stitchedFiles")!!.getString(j) },
+                        pdfPath = if (obj.has("pdfPath") && !obj.isNull("pdfPath")) obj.getString("pdfPath") else null
+                    )
+                } catch (e: Exception) {
+                    null // Skip corrupted entries
+                }
             }
+            sessions.sortedByDescending { it.timestamp }
         } catch (e: Exception) {
             emptyList()
         }
